@@ -33,15 +33,40 @@ impl Server {
     }
 
     pub fn run(&self) {
-        let listener = TcpListener::bind(&self.address.as_deref().unwrap()).unwrap();
+        let listener = TcpListener::bind(self.address.as_deref().unwrap()).unwrap();
 
-        for stream in listener.incoming() {
+        for tcp_stream in listener.incoming() {
             let mut buffer = [0; 1024];
-            let _ = stream.unwrap().read(&mut buffer);
+            let mut stream = tcp_stream.unwrap();
+            stream.read(&mut buffer).unwrap();
+        
+            let request_str = String::from_utf8_lossy(&buffer);
+            let mut raw_request = request_str.split("\r\n").take_while(|x| !x.is_empty());
 
-            println!("Buffer: {:?}", buffer);
+            let mut raw_req_header = raw_request.next().unwrap().split(" ");
+
+            let mut headers: HashMap<String, String> = HashMap::new();
+
+            raw_request.for_each(|header| {
+                let mut current = header.split(": ");
+                let key = current.next().unwrap_or("None").to_owned();
+                let val = current.next().unwrap_or("None").to_owned();
+                headers.insert(key, val);
+            });
+
+            let request = Request {
+                method: raw_req_header.next().unwrap().to_owned(),
+                uri: raw_req_header.next().unwrap().to_owned(),
+                version: raw_req_header.next().unwrap().to_owned(),
+                headers: headers,
+                body: None
+            };
+
+            println!("request: {:#?}", request);
 
             println!("connection established");
+
+            stream.flush().unwrap();
         }
     }
 }
