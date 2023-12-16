@@ -4,32 +4,37 @@ use std::net::TcpListener;
 use std::io::prelude::*;
 use std::io::BufReader;
 
-use crate::http::HttpMethod;
+use crate::http::{HttpMethod, HttpError, HttpStatusCode};
 use crate::request::Request;
 use crate::response::Response;
 
+pub type RouteHandler = fn(Request) -> Response;
+
+#[derive(PartialEq, Eq, Hash)]
 pub struct Route {
     method: HttpMethod,
-    path: String,
+    path: String
 }
-
-pub type RouteHandler = fn(Request) -> Response;
 
 pub struct Server {
     address: Option<String>,
-    routes: Option<HashMap<Route, RouteHandler>>,
+    routes: HashMap<Route, RouteHandler>,
 }
 
 impl Server {
     pub fn new() -> Self {
         Self {
             address: None,
-            routes: Some(HashMap::new()),
+            routes: HashMap::new(),
         }
     }
 
     pub fn bind(&mut self, addr: &str) {
       self.address = Some(addr.to_owned());
+    }
+
+    pub fn route(&mut self, method: HttpMethod, route: &str, handler: RouteHandler) {
+        self.routes.insert(Route { method: method, path: route.to_owned() }, handler);
     }
 
     pub fn run(&self) {
@@ -49,13 +54,13 @@ impl Server {
 
             raw_request.for_each(|header| {
                 let mut current = header.split(": ");
-                let key = current.next().unwrap_or("None").to_owned();
-                let val = current.next().unwrap_or("None").to_owned();
+                let key = current.next().unwrap().to_owned();
+                let val = current.next().unwrap().to_owned();
                 headers.insert(key, val);
             });
 
             let request = Request {
-                method: raw_req_header.next().unwrap().to_owned(),
+                method: raw_req_header.next().unwrap().parse().unwrap(),
                 uri: raw_req_header.next().unwrap().to_owned(),
                 version: raw_req_header.next().unwrap().to_owned(),
                 headers: headers,
@@ -64,9 +69,37 @@ impl Server {
 
             println!("request: {:#?}", request);
 
-            println!("connection established");
+            let response = handle_route(request, &self.routes);
+
+            match response {
+                Ok(res) => {
+                    let response_string = res.to_string();
+                    stream.write(response_string.as_bytes()).unwrap();
+                },
+                Err(e) => {
+                    let error_response = Response {
+                        status_code: e.status as u16,
+                        status_text: e.status.default_reason_phrase(),
+                        headers: None,
+                        body: Some(e.msg)
+                    };
+
+                    stream.write(error_response.to_string().as_bytes()).unwrap();
+                }
+            }
 
             stream.flush().unwrap();
         }
+    }
+}
+
+fn handle_route(request: Request, routes: &HashMap<Route, RouteHandler>) -> Result<Response, HttpError> {
+    if let Some(handler) = routes.get(&Route { method: request.method.clone(), path: request.uri.clone() }) {
+        Ok(handler(request))
+    } else {
+        Err(HttpError {
+            status: HttpStatusCode::NotFound,
+            msg: format!("Cannot GET {}", request.uri)
+        })
     }
 }
