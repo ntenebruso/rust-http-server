@@ -1,5 +1,5 @@
 use crate::http::{HttpError, HttpMethod, HttpStatusCode};
-use std::collections::HashMap;
+use std::{collections::HashMap, os::linux::raw};
 
 #[derive(Debug)]
 pub struct Request {
@@ -14,31 +14,56 @@ impl std::str::FromStr for Request {
     type Err = HttpError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut raw_request = s.split("\r\n").take_while(|line| !line.is_empty());
+        println!("Raw request: {:#?}", s);
 
-        let mut raw_req_header = raw_request
-            .next()
-            .ok_or(HttpError(
+        let lines = s
+            .split("\r\n")
+            .map(|line| line.to_owned())
+            .collect::<Vec<String>>();
+
+        println!("Untyped request: {:#?}", lines);
+
+        let raw_req_header = lines[0].split(" ").collect::<Vec<&str>>();
+
+        if raw_req_header.len() < 3 {
+            return Err(HttpError(
                 HttpStatusCode::BadRequest,
-                "Malformed Request".to_owned(),
-            ))?
-            .split(" ");
+                "Malformed request".to_owned(),
+            ));
+        }
 
         let mut headers: HashMap<String, String> = HashMap::new();
+        let mut body: Option<String> = None;
+        let mut collect = false;
 
-        raw_request.for_each(|header| {
-            let mut current = header.split(": ");
-            let key = current.next().unwrap().to_owned();
-            let val = current.next().unwrap().to_owned();
-            headers.insert(key, val);
-        });
+        for line in lines.iter().skip(1) {
+            if line.is_empty() {
+                collect = true;
+            } else if collect {
+                body = Some(line.trim_matches(char::from(0)).to_owned());
+            } else {
+                let current = line.split(": ").collect::<Vec<&str>>();
+
+                if current.len() < 2 {
+                    continue;
+                }
+
+                let key = current[0].to_owned();
+                let val = current[1].to_owned();
+                headers.insert(key, val);
+            }
+        }
 
         Ok(Request {
-            method: raw_req_header.next().unwrap().parse().unwrap(),
-            uri: raw_req_header.next().unwrap().to_owned(),
-            version: raw_req_header.next().unwrap().to_owned(),
-            headers: headers,
-            body: None,
+            method: raw_req_header[0].parse().unwrap(),
+            uri: raw_req_header[1].to_owned(),
+            version: raw_req_header[2].to_owned(),
+            headers,
+            body: if body.as_deref().unwrap_or_default().is_empty() {
+                None
+            } else {
+                body
+            },
         })
     }
 }
