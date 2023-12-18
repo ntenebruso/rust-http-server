@@ -1,11 +1,11 @@
 use http_lib::http::HttpMethod;
 use http_lib::http::HttpStatusCode;
 use http_lib::response::ResponseBuilder;
-use http_lib::server::Server;
+use http_lib::server::ServerBuilder;
 use std::fs;
 
 fn main() {
-    let mut server = Server::new();
+    let mut server = ServerBuilder::new();
     server.bind("0.0.0.0:3000");
 
     server.route(HttpMethod::Get, "/", |req| {
@@ -18,5 +18,5 @@ fn main() {
         ResponseBuilder::new(HttpStatusCode::Success).body("about")
     });
 
-    server.run();
+    server.build().run();
 }

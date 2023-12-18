@@ -1,7 +1,5 @@
 use std::collections::HashMap;
-use std::fs;
 use std::io::prelude::*;
-use std::io::BufReader;
 use std::net::TcpListener;
 
 use crate::http::{HttpError, HttpMethod, HttpStatusCode};
@@ -10,18 +8,18 @@ use crate::response::Response;
 
 pub type RouteHandler = fn(Request) -> Response;
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Hash, Clone)]
 pub struct Route {
     method: HttpMethod,
     path: String,
 }
 
-pub struct Server {
+pub struct ServerBuilder {
     address: Option<String>,
     routes: HashMap<Route, RouteHandler>,
 }
 
-impl Server {
+impl ServerBuilder {
     pub fn new() -> Self {
         Self {
             address: None,
@@ -29,11 +27,13 @@ impl Server {
         }
     }
 
-    pub fn bind(&mut self, addr: &str) {
+    pub fn bind(&mut self, addr: &str) -> &mut Self {
         self.address = Some(addr.to_owned());
+
+        self
     }
 
-    pub fn route(&mut self, method: HttpMethod, route: &str, handler: RouteHandler) {
+    pub fn route(&mut self, method: HttpMethod, route: &str, handler: RouteHandler) -> &mut Self {
         self.routes.insert(
             Route {
                 method: method,
@@ -41,10 +41,26 @@ impl Server {
             },
             handler,
         );
+
+        self
     }
 
+    pub fn build(&mut self) -> Server {
+        Server {
+            address: self.address.clone().unwrap_or("0.0.0.0:3000".to_owned()),
+            routes: self.routes.clone(),
+        }
+    }
+}
+
+pub struct Server {
+    address: String,
+    routes: HashMap<Route, RouteHandler>,
+}
+
+impl Server {
     pub fn run(&self) {
-        let listener = TcpListener::bind(self.address.as_deref().unwrap()).unwrap();
+        let listener = TcpListener::bind(&self.address).unwrap();
 
         for tcp_stream in listener.incoming() {
             let mut buffer = [0; 1024];
